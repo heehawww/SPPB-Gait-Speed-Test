@@ -3,7 +3,16 @@ import cv2
 import time
 import numpy as np
 from math import floor
+from jitter import OneEuroFilter
 from frame_preprocessing import colour_correction, trace_contour, find_contour_coordinates
+
+
+filters = [
+    {"x": OneEuroFilter(frequency=30, min_cutoff=1.0, beta=0.01),
+     "y": OneEuroFilter(frequency=30, min_cutoff=1.0, beta=0.01)}
+    for _ in range(4)
+]
+
 
 class WalkingTest:
     LINE_COLOUR = (0, 255, 0)
@@ -37,7 +46,7 @@ class WalkingTest:
     
 
     def getMarkings(self, frame):
-        masked_frame = colour_correction(frame)
+        masked_frame = colour_correction(frame, colour = "green")
         contour_lists = trace_contour(masked_frame)
         start_line, end_line = find_contour_coordinates(contour_lists)
 
@@ -82,14 +91,8 @@ class WalkingTest:
             return False
 
 
-    def crossStartLine(self, keypoints, curr_time):
+    def crossStartLine(self, LeftBigToe, RightBigToe, LeftToe, RightToe, curr_time):
         # The foot has crossed the start line if the big toe or toe is above (y smaller than) the start line
-        LeftBigToe = keypoints[20]
-        RightBigToe = keypoints[21]
-        LeftToe = keypoints[22]
-        RightToe = keypoints[23]
-
-        # Change this part to vary according to the isBelowLine function
         left_foot = (self.isBelowLine(LeftBigToe) or self.isBelowLine(LeftToe))
         right_foot = (self.isBelowLine(RightBigToe) or self.isBelowLine(RightToe))
 
@@ -99,12 +102,7 @@ class WalkingTest:
             self.start_frame_count = self.frame
 
 
-    def crossEndLine(self, keypoints, curr_time):
-        LeftBigToe = keypoints[20]
-        RightBigToe = keypoints[21]
-        LeftToe = keypoints[22]
-        RightToe = keypoints[23]
-
+    def crossEndLine(self, LeftBigToe, RightBigToe, LeftToe, RightToe, curr_time):
         left_foot = (self.isBelowLine(LeftBigToe) or self.isBelowLine(LeftToe))
         right_foot = (self.isBelowLine(RightBigToe) or self.isBelowLine(RightToe))
 
@@ -128,16 +126,34 @@ class WalkingTest:
         if self.start_line is None or self.end_line is None:
             self.getMarkings(frame)
 
+        # Get required keypoints
         keypoints, scores = results
         annotated_image = draw_skeleton(frame, keypoints, scores)
         required_keypoints = keypoints[0]
+        LeftBigToe = required_keypoints[20]
+        RightBigToe = required_keypoints[21]
+        LeftToe = required_keypoints[22]
+        RightToe = required_keypoints[23]
+
+        # Apply the OneEuroFilter
+        LeftBigToe[0] = filters[0]["x"].apply(LeftBigToe[0], curr_time)
+        LeftBigToe[1] = filters[0]["y"].apply(LeftBigToe[1], curr_time)
+
+        RightBigToe[0] = filters[1]["x"].apply(RightBigToe[0], curr_time)
+        RightBigToe[1] = filters[1]["y"].apply(RightBigToe[1], curr_time)
+
+        LeftToe[0] = filters[2]["x"].apply(LeftToe[0], curr_time)
+        LeftToe[1] = filters[2]["y"].apply(LeftToe[1], curr_time)
+
+        RightToe[0] = filters[3]["x"].apply(RightToe[0], curr_time)
+        RightToe[1] = filters[3]["y"].apply(RightToe[1], curr_time)
 
         # Check line crossings
         if self.status is None:
-            self.crossStartLine(required_keypoints, curr_time)
+            self.crossStartLine(LeftBigToe, RightBigToe, LeftToe, RightToe, curr_time)
             elapsed_time = 0.0
         elif self.status == "Start":
-            self.crossEndLine(required_keypoints, curr_time)
+            self.crossEndLine(LeftBigToe, RightBigToe, LeftToe, RightToe, curr_time)
             elapsed_time = (self.frame - self.start_frame_count) / fps
             #elapsed_time = curr_time - self.start_time
         elif self.status == "End":
@@ -164,7 +180,7 @@ class WalkingTest:
         return annotated_image, self.status
 
 
-    def process_video(self, output_path="../output/walking_test_output.mp4"):
+    def process_video(self, output_path="../output/green_office_output.mp4"):
         fps = self.cap.get(cv2.CAP_PROP_FPS)
         width = 360  # GET FROM THE VIDEO ITSELF
         height = 640
@@ -194,6 +210,6 @@ class WalkingTest:
 if __name__ == "__main__":
     model = BodyWithFeet(mode="performance", to_openpose=False, backend="onnxruntime", device="cpu")
 
-    video_path = "../data/walking_with_markings.mp4"
+    video_path = "../data/green_office.mp4"
     walking_test = WalkingTest(model, source=video_path)
     walking_test.process_video()

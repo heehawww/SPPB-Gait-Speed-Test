@@ -71,4 +71,3 @@ class OneEuroFilter:
         #     print(f"original: {value}, new: {result}")
 
         return result
-    
