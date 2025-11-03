@@ -15,12 +15,13 @@ filters = [
 
 
 class WalkingTest:
-    LINE_COLOUR = (0, 255, 0)
+    LINE_COLOUR = (0, 0, 255)
     LINE_THICKNESS = 2
 
 
     def __init__(self, model, source=None):
-        self.cap = cv2.VideoCapture(source)
+        if source or source == 0:
+            self.cap = cv2.VideoCapture(source)
         self.source = source
         self.model = model
         self.start_time = 0.0
@@ -46,13 +47,17 @@ class WalkingTest:
     
 
     def getMarkings(self, frame):
-        masked_frame = colour_correction(frame, colour = "green")
+        masked_frame = colour_correction(frame, colour = "blue") # Change to red, blue or green
         contour_lists = trace_contour(masked_frame)
         start_line, end_line = find_contour_coordinates(contour_lists)
 
+        if start_line is None or end_line is None:
+            print(f"Markings not detected for frame {self.frame}.")
+            return False  
+
         self.start_line = start_line
         self.end_line = end_line
-        return None
+        return True
 
 
     def getLine(self, type):
@@ -68,6 +73,27 @@ class WalkingTest:
         y_end = int(self.calculate_y_on_line(m, x2, c))
 
         return (0, y_start), (self.WIDTH, y_end)
+    
+
+    def drawLanes(self, annotated_image):
+        left_x1 = int(0.3 * self.WIDTH)
+        left_y1 = 0
+        left_x2 = int(0.2 * self.WIDTH)
+        left_y2 = self.HEIGHT
+        left_1 = (left_x1, left_y1)
+        left_2 = (left_x2, left_y2)
+
+        right_x1 = int(0.7 * self.WIDTH)
+        right_y1 = 0
+        right_x2 = int(0.8 * self.WIDTH)
+        right_y2 = self.HEIGHT
+        right_1 = (right_x1, right_y1)
+        right_2 = (right_x2, right_y2)
+
+        cv2.line(annotated_image, left_1, left_2, (0, 255, 0), 4)
+        cv2.line(annotated_image, right_1, right_2, (0, 255, 0), 4)
+
+        return None
 
 
     def isBelowLine(self, toe):
@@ -124,7 +150,10 @@ class WalkingTest:
         
         # Do image preprocessing here
         if self.start_line is None or self.end_line is None:
-            self.getMarkings(frame)
+            success = self.getMarkings(frame)
+            if not success:
+                cv2.putText(frame, "Detecting markings...", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                return frame, None
 
         # Get required keypoints
         keypoints, scores = results
@@ -149,24 +178,27 @@ class WalkingTest:
         RightToe[1] = filters[3]["y"].apply(RightToe[1], curr_time)
 
         # Check line crossings
-        if self.status is None:
+        if self.status is None and self.start_line:
             self.crossStartLine(LeftBigToe, RightBigToe, LeftToe, RightToe, curr_time)
             elapsed_time = 0.0
-        elif self.status == "Start":
+        elif self.status == "Start" and self.end_line:
             self.crossEndLine(LeftBigToe, RightBigToe, LeftToe, RightToe, curr_time)
-            elapsed_time = (self.frame - self.start_frame_count) / fps
-            #elapsed_time = curr_time - self.start_time
+            elapsed_time = curr_time - self.start_time
+            # elapsed_time = (self.frame - self.start_frame_count) / fps
         elif self.status == "End":
-            # frames = (self.end_frame_count - self.start_frame_count) / fps #fps
-            # elapsed_time = (self.end_time - self.start_time) * frames
-            elapsed_time = (self.end_frame_count - self.start_frame_count) / fps
+            elapsed_time = (self.end_time - self.start_time) 
+            #elapsed_time = (self.end_frame_count - self.start_frame_count) / fps
 
 
-        # Draw start and end lines
-        start_line1, start_line2 = self.getLine("Start")
-        end_line1, end_line2 = self.getLine("End")
-        cv2.line(annotated_image, start_line1, start_line2, WalkingTest.LINE_COLOUR, WalkingTest.LINE_THICKNESS)
-        cv2.line(annotated_image, end_line1, end_line2, WalkingTest.LINE_COLOUR, WalkingTest.LINE_THICKNESS)
+        # Draw start, end and lane lines
+        if self.start_line:
+            start_line1, start_line2 = self.getLine("Start")
+            cv2.line(annotated_image, start_line1, start_line2, WalkingTest.LINE_COLOUR, WalkingTest.LINE_THICKNESS)
+        if self.end_line:
+            end_line1, end_line2 = self.getLine("End")
+            cv2.line(annotated_image, end_line1, end_line2, WalkingTest.LINE_COLOUR, WalkingTest.LINE_THICKNESS)
+        
+        self.drawLanes(annotated_image)
 
         # Display text overlay
         overlay_text = f"Status: {self.status or 'Waiting'}"
@@ -180,36 +212,68 @@ class WalkingTest:
         return annotated_image, self.status
 
 
-    def process_video(self, output_path="../output/green_office_output.mp4"):
+    def process_video(self, output_path="../output/green_office_output_lanes.mp4"):
+        # fps = self.cap.get(cv2.CAP_PROP_FPS)
+        # ret, frame = self.cap.read()
+        # height, width = frame.shape[:2]
+        # self.WIDTH = width
+        # self.HEIGHT = height
+
+        # out = cv2.VideoWriter(
+        #     output_path,
+        #     cv2.VideoWriter_fourcc(*'mp4v'),
+        #     fps,
+        #     (width, height)
+        # )
+
+        # image, _ = self.process_frame(frame, fps)
+        # out.write(image)
+
+        # while self.cap.isOpened():
+        #     ret, frame = self.cap.read()
+        #     if not ret:
+        #         break
+        #     image, _ = self.process_frame(frame, fps)
+        #     out.write(image)
+
+        # self.cap.release()
+        # out.release()
+        # cv2.destroyAllWindows()
+
         fps = self.cap.get(cv2.CAP_PROP_FPS)
-        width = 360  # GET FROM THE VIDEO ITSELF
-        height = 640
+        if fps == 0: fps = 30.0
 
-        out = cv2.VideoWriter(
-            output_path,
-            cv2.VideoWriter_fourcc(*'mp4v'),
-            fps,
-            (width, height)
-        )
+        ret, frame = self.cap.read()
+        if not ret:
+            print("Cannot access webcam.")
+            return
 
-        while self.cap.isOpened():
+        height, width = frame.shape[:2]
+        self.WIDTH = width
+        self.HEIGHT = height
+
+        while True:
             ret, frame = self.cap.read()
             if not ret:
                 break
-            frame = cv2.resize(frame, (360, 640))
-            self.WIDTH = frame.shape[0]
-            self.HEIGHT = frame.shape[1]
+
             image, _ = self.process_frame(frame, fps)
-            out.write(image)
+            if image is None:
+                continue
+
+            cv2.imshow("Real-Time Walking Test", image)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
         self.cap.release()
-        out.release()
         cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
     model = BodyWithFeet(mode="performance", to_openpose=False, backend="onnxruntime", device="cpu")
 
-    video_path = "../data/green_office.mp4"
-    walking_test = WalkingTest(model, source=video_path)
+    path = 0 
+    #video_path = "../data/green_office.mp4"
+    walking_test = WalkingTest(model, source=path)
     walking_test.process_video()
